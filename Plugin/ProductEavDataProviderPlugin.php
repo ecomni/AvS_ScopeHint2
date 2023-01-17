@@ -7,6 +7,8 @@ use Magento\Catalog\Ui\DataProvider\Product\Form\Modifier\Eav;
 use Magento\Framework\Registry;
 use Magento\Store\Model\StoreManagerInterface;
 use Magento\Catalog\Model\Attribute\ScopeOverriddenValue;
+use Magento\Catalog\Model\Product;
+use Magento\Store\Api\Data\StoreInterface;
 
 class ProductEavDataProviderPlugin
 {
@@ -66,11 +68,7 @@ class ProductEavDataProviderPlugin
             $productByStoreCode = $this->getProductInStoreView($product->getId(), $storeView->getId());
             $currentScopeValueForCode = $value = $productByStoreCode->getData($attributeCode);
 
-            if ($result['arguments']['data']['config']['dataType'] == 'select'
-                && !is_array($currentScopeValueForCode)
-            ) {
-                $value = $productByStoreCode->getResource()->getAttribute($attributeCode)->getSource()->getOptionText($currentScopeValueForCode);
-            }
+            $value = $this->renderScopeValue($productByStoreCode, $attributeCode, $value, $storeView, $result);
 
             // This checks if we can cast $value to a string
             // If this fails, we json_encode the value, so we eventually do get a string representation
@@ -92,7 +90,7 @@ class ProductEavDataProviderPlugin
             }
 
             if ($valueAsString !== null && $product->getData($attributeCode) !== $currentScopeValueForCode) {
-                $scopeHints[] = $storeView->getName() . ': ' . $valueAsString;
+                $scopeHints[] = '<strong>' . $storeView->getName() . '</strong><br>' . $valueAsString;
             }
 
             if (!empty($scopeHints)) {
@@ -101,6 +99,37 @@ class ProductEavDataProviderPlugin
         }
 
         return $result;
+    }
+
+    protected function renderScopeValue(
+        Product $product,
+        string $attributeCode,
+        $scopeValue,
+        StoreInterface $store,
+        array $meta
+    ) {
+        $value = $scopeValue;
+        $dataType = $meta['arguments']['data']['config']['dataType'] ?? null;
+        if ($dataType === 'select' && !is_array($scopeValue)) {
+            $value = $product->getResource()->getAttribute($attributeCode)->getSource()
+                ->getOptionText($scopeValue);
+        } elseif ($dataType === 'price') {
+            $value = $store->getBaseCurrency()->format($value, [], false);
+        } elseif ($dataType === 'multiselect') {
+            if (is_string($scopeValue)) {
+                $scopeValue = explode(',', $scopeValue);
+            }
+            if (is_array($scopeValue)) {
+                $renderedValues = [];
+                foreach ($scopeValue as $val) {
+                    $renderedValues[] = $product->getResource()->getAttribute($attributeCode)->getSource()->getOptionText($val);
+                }
+                if (count($renderedValues) > 0) {
+                    $value = '<ul><li>' . implode('</li><li>', $renderedValues) . '</li></ul>';
+                }
+            }
+        }
+        return $value;
     }
 
     /**
